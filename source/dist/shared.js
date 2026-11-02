@@ -1,3 +1,4 @@
+const SITE_BASE=(()=>{try{return new URL('.',document.currentScript.src).pathname}catch(e){return SITE_BASE}})();
 const KEY = 'experthub-event-demo-v1';
 const DEFAULT_EVENT = {
   name:'AI × Design 工作坊', tagline:'讓交流，成為下一個靈感。',
