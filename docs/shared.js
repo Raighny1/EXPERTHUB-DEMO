@@ -2,7 +2,7 @@ const SITE_BASE=(()=>{try{return new URL('.',document.currentScript.src).pathnam
 const KEY = 'experthub-event-demo-v1';
 const FIRST_VISIT=(()=>{try{return localStorage.getItem(KEY)===null}catch{return false}})();
 let seedDone=false;
-async function applySeed(){if(!FIRST_VISIT||seedDone)return;seedDone=true;try{const r=await fetch(SITE_BASE+'seed.json',{cache:'no-cache'});if(!r.ok)return;const seed=await r.json();if(!seed||!seed.root)return;for(const [id,m] of Object.entries(seed.media||{})){const blob=await (await fetch(m.data)).blob();await storeMedia(id,new File([blob],m.name||id,{type:m.type||blob.type}))}root=normalizeRoot(seed.root);pickEvent(root.currentId);save()}catch{}}
+async function applySeed(){if(!FIRST_VISIT||seedDone)return;seedDone=true;try{const r=await fetch(SITE_BASE+'seed.json',{cache:'no-cache'});if(!r.ok)return;const seed=await r.json();if(!seed||!seed.root)return;for(const [id,m] of Object.entries(seed.media||{})){const blob=await (await fetch(m.data)).blob();await storeMedia(id,new File([blob],m.name||id,{type:m.type||blob.type}))}root=normalizeRoot(seed.root);pickEvent(root.currentId);save();if(seed.library){library=normalizeLibrary(seed.library);saveLibrary()}}catch{}}
 const DEFAULT_EVENT = {
   name:'AI × Design 工作坊', tagline:'讓交流，成為下一個靈感。',
   intro:'從產品、設計與技術的真實工作情境出發，一起探索新的協作方法。',
@@ -33,8 +33,8 @@ const QUESTION_BANK = [
 ];
 const copy = value => JSON.parse(JSON.stringify(value));
 const PHASE_LABEL={ended:'已結束',open:'報名中',soon:'Coming soon'};
-function newEventState(over={}){const base={registered:false,registrations:[],responses:[],event:copy(DEFAULT_EVENT),questions:copy([QUESTION_BANK[0],QUESTION_BANK[1],QUESTION_BANK[4]]),surveyOpen:true,surveyVersion:1,status:'draft',title:'AI × Design：活動精彩回顧',summary:'記錄這場交流的重點、現場片段與分享內容。',assets:[],coverId:'',theme:'editorial',comment:'',synced:false,publishedRecap:null,reviewRecap:null};return {...base,...over,event:{...DEFAULT_EVENT,...(over.event||{})}}}
-function normalizeEventState(s){s.event={...DEFAULT_EVENT,...s.event};s.event.registrationFields=registrationConfig(s.event);if(!Array.isArray(s.registrations))s.registrations=[];if(!Array.isArray(s.responses))s.responses=[];if(!Array.isArray(s.assets))s.assets=[];if(s.status==='published'&&!s.publishedRecap)s.publishedRecap={title:s.title,summary:s.summary,assets:copy(s.assets),coverId:s.assets.find(a=>a.type?.startsWith('image/'))?.id||'',theme:'editorial',event:copy(s.event)};if(['review','approved'].includes(s.status)&&!s.reviewRecap)s.status='draft';if(!s.id)s.id=newEventId();return s}
+function newEventState(over={}){const base={registered:false,registrations:[],responses:[],event:copy(DEFAULT_EVENT),questions:copy([QUESTION_BANK[0],QUESTION_BANK[1],QUESTION_BANK[4]]),surveyOpen:true,surveyMode:'form',surveyVersion:1,status:'draft',title:'AI × Design：活動精彩回顧',summary:'記錄這場交流的重點、現場片段與分享內容。',assets:[],coverId:'',theme:'editorial',comment:'',synced:false,publishedRecap:null,reviewRecap:null};return {...base,...over,event:{...DEFAULT_EVENT,...(over.event||{})}}}
+function normalizeEventState(s){if(!['form','chat'].includes(s.surveyMode))s.surveyMode='form';s.event={...DEFAULT_EVENT,...s.event};s.event.registrationFields=registrationConfig(s.event);if(!Array.isArray(s.registrations))s.registrations=[];if(!Array.isArray(s.responses))s.responses=[];if(!Array.isArray(s.assets))s.assets=[];if(s.status==='published'&&!s.publishedRecap)s.publishedRecap={title:s.title,summary:s.summary,assets:copy(s.assets),coverId:s.assets.find(a=>a.type?.startsWith('image/'))?.id||'',theme:'editorial',event:copy(s.event)};if(['review','approved'].includes(s.status)&&!s.reviewRecap)s.status='draft';if(!s.id)s.id=newEventId();return s}
 function newEventId(){return 'evt-'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 function sampleEvents(){const all={time:true,venue:true,attendees:true,responses:true};
  const ended=newEventState({id:'evt-product-strategy',event:{name:'Product Strategy Meetup',tagline:'把策略，變成可執行的下一步。',intro:'與產品團隊一起拆解策略、優先順序與落地方法，分享各團隊的實戰經驗。',date:'2026-09-18',start:'14:00',end:'17:00',venue:'台北交流空間',mode:'實體',audience:'PM、Product Owner',capacity:80,deadline:'2026-09-17T18:00',agenda:'14:00｜開場\n14:30｜策略拆解分享\n15:30｜案例工作坊\n16:30｜交流',tags:'產品策略,Meetup,PM'},title:'Product Strategy Meetup：活動精彩回顧',summary:'從策略拆解到落地方法，現場夥伴交流各團隊的優先順序判斷與實戰經驗，並整理成可延續使用的共識。',status:'published',synced:true});
@@ -68,6 +68,59 @@ function questionInput(q,index,preview=false){const name='q_'+q.id,required=q.re
   return `<fieldset class="survey-question"><legend>${index+1}. ${esc(q.title)} ${q.required?'<span class="required">*</span>':'<small class="fine">選填</small>'}</legend>${control}</fieldset>`;
 }
 function surveyForm(questions=state.questions,preview=false){return `<form onsubmit="${preview?'event.preventDefault()':'submitSurvey(event)'}">${questions.map((q,i)=>questionInput(q,i,preview)).join('')}<div class="actions"><button class="primary" ${preview?'type="button" disabled':''}>${preview?'問卷預覽，不會送出':'送出問卷'}</button></div></form>`}
+
+
+const LIB_KEY='experthub-survey-library-v1';
+const ISV_COLORS=['#17624e','#b45309','#1d4ed8','#9333ea'];
+function defaultLibrary(){const A='isv-a',B='isv-b',C='isv-c',D='isv-d',all=[A,B,C,D];const q=(id,title,type,options,isvIds,required=false)=>({id,title,type,options,isvIds,required});
+ return {v:1,isvs:[{id:A,name:'ISV A'},{id:B,name:'ISV B'},{id:C,name:'ISV C'},{id:D,name:'ISV D'}],questions:[
+ q('lib-satisfaction','你對這次活動的整體滿意度？','rating',[],all,true),
+ q('lib-recommend','你會推薦同事參與類似活動嗎？','rating',[],all,true),
+ q('lib-contact','是否同意 ISV 後續與你聯繫？','single',['同意','不同意'],all,true),
+ q('lib-feedback','對活動有什麼建議或想法？','text',[],all),
+ q('lib-takeaway','這次活動最有收穫的部分是？','single',['主題分享','實作體驗','跨團隊交流'],[A,B]),
+ q('lib-timeline','預計何時導入相關解決方案？','single',['3 個月內','6 個月內','一年內','僅了解'],[A,C]),
+ q('lib-platform','目前主要使用的雲端平台？','single',['AWS','Azure','GCP','地端自建','尚未導入'],[A]),
+ q('lib-budget','相關專案的預算範圍？','single',['50 萬以下','50–200 萬','200–500 萬','500 萬以上','尚未規劃'],[B,D]),
+ q('lib-modules','感興趣的產品模組？','multi',['資料分析','AI 應用','資安','雲端遷移'],[C]),
+ q('lib-teamsize','所屬公司規模？','single',['50 人以下','50–200 人','200–1000 人','1000 人以上'],[D])]}}
+function normalizeLibrary(l){const d=defaultLibrary();if(!l||!Array.isArray(l.isvs)||l.isvs.length===0||!Array.isArray(l.questions))return d;l.isvs=l.isvs.map((v,i)=>({id:v.id||'isv-'+i,name:String(v.name||'ISV '+(i+1))}));const ids=l.isvs.map(v=>v.id);l.questions=l.questions.filter(q=>q&&q.id&&q.title).map(q=>({id:q.id,title:String(q.title),type:['rating','single','multi','text'].includes(q.type)?q.type:'text',options:Array.isArray(q.options)?q.options:[],required:!!q.required,isvIds:(q.isvIds||[]).filter(x=>ids.includes(x))}));return l}
+let library;try{library=normalizeLibrary(JSON.parse(localStorage.getItem(LIB_KEY)||'null'))}catch{library=normalizeLibrary(null)}
+function saveLibrary(){try{localStorage.setItem(LIB_KEY,JSON.stringify(library));return true}catch{toast('儲存空間不足，題庫變更尚未儲存。');return false}}
+function isvName(id){return library.isvs.find(v=>v.id===id)?.name||id}
+function isvColor(id){const i=library.isvs.findIndex(v=>v.id===id);return ISV_COLORS[(i<0?0:i)%ISV_COLORS.length]}
+function isvChips(ids){return (ids||[]).map(id=>`<span class="isv-chip" style="--c:${isvColor(id)}">${esc(isvName(id))}</span>`).join('')}
+function isvScope(ids){const n=(ids||[]).length,t=library.isvs.length;if(!n)return '<span class="scope scope-none">未指定 ISV</span>';if(n===t)return `<span class="scope scope-all">${t} 家 ISV 共同</span>`;if(n===1)return `<span class="scope scope-one">僅 ${esc(isvName(ids[0]))}</span>`;return `<span class="scope scope-some">${n} 家 ISV</span>`}
+function qIsvIds(q){const l=library.questions.find(x=>x.id===q.libId);return l?l.isvIds:(q.isvIds||[])}
+const CHATS={};
+function chatNew(questions,preview){const c={q:questions,preview,idx:0,log:[],sel:[],answers:[],done:false};c.log.push({f:'bot',t:'嗨，我是 AIA。花不到一分鐘，聊聊你對「'+(state.event.name||'這場活動')+'」的感受。'});chatAsk(c);return c}
+function chatAsk(c){const q=c.q[c.idx];if(!q){c.done=true;c.log.push({f:'bot',t:'目前沒有題目。'});return}c.sel=[];c.log.push({f:'bot',t:`(${c.idx+1}/${c.q.length}) ${q.title}${q.required?'':'（可略過）'}`})}
+function chatSurvey(questions=state.questions,preview=false){const k=preview?'preview':state.id+'@'+state.surveyVersion;if(preview||!CHATS[k])CHATS[k]=chatNew(copy(questions),preview);return `<div class="aia-chat" id="aiaChat" data-k="${esc(k)}">${chatInner(k)}</div>`}
+function chatInner(k){const c=CHATS[k],q=c.q[c.idx];const kk=esc(k);let ctl='';
+ if(c.done)ctl=`<div class="aia-actions"><button type="button" onclick="chatRestart('${kk}')">${c.preview?'重新預覽':'再填寫一次'}</button></div>`;
+ else if(q){if(q.type==='rating')ctl=`<div class="aia-chips">${[1,2,3,4,5].map(v=>`<button type="button" onclick="chatAnswer('${kk}','${v}')">${v} 分</button>`).join('')}</div>`;
+  else if(q.type==='single')ctl=`<div class="aia-chips">${q.options.map((o,i)=>`<button type="button" onclick="chatAnswer('${kk}',${i})">${esc(o)}</button>`).join('')}</div>`;
+  else if(q.type==='multi')ctl=`<div class="aia-chips">${q.options.map((o,i)=>`<button type="button" aria-pressed="${c.sel.includes(i)}" class="${c.sel.includes(i)?'on':''}" onclick="chatToggle('${kk}',${i})">${esc(o)}</button>`).join('')}</div><div class="aia-actions"><button type="button" class="primary" onclick="chatAnswer('${kk}')">確認選擇</button></div>`;
+  else ctl=`<div class="aia-text"><textarea id="aiaText" maxlength="2000" aria-label="${esc(q.title)}" placeholder="輸入你的想法"></textarea><button type="button" class="primary" onclick="chatAnswer('${kk}')">送出</button></div>`;
+  if(!q.required)ctl+=`<div class="aia-actions"><button type="button" class="aia-skip" onclick="chatAnswer('${kk}',null,true)">略過這題</button></div>`}
+ return `<div class="aia-head"><span class="aia-avatar" aria-hidden="true">A</span><div><b>AIA</b><small>現場問卷助理${c.preview?' · 預覽，不會送出':''}</small></div></div><div class="aia-log" role="log" aria-live="polite">${c.log.map(m=>`<div class="aia-msg ${m.f}">${esc(m.t)}</div>`).join('')}</div><div class="aia-input">${ctl}</div>`}
+function chatPaint(k){const box=document.getElementById('aiaChat');if(!box||!CHATS[k])return;box.innerHTML=chatInner(k);const l=box.querySelector('.aia-log');if(l)l.scrollTop=l.scrollHeight}
+function chatToggle(k,i){const c=CHATS[k];if(!c)return;const p=c.sel.indexOf(i);p<0?c.sel.push(i):c.sel.splice(p,1);chatPaint(k)}
+function chatRestart(k){const c=CHATS[k];if(!c)return;CHATS[k]=chatNew(c.q,c.preview);chatPaint(k)}
+function chatAnswer(k,arg,skip=false){const c=CHATS[k];if(!c||c.done)return;const q=c.q[c.idx];if(!q)return;if(!c.preview&&!state.surveyOpen){toast('問卷已停止填答');return}
+ let value,shown;
+ if(skip){value=q.type==='multi'?[]:'';shown='略過'}
+ else if(q.type==='rating'){value=String(arg);shown=value+' 分'}
+ else if(q.type==='single'){value=q.options[arg];shown=value}
+ else if(q.type==='multi'){value=c.sel.slice().sort((a,b)=>a-b).map(i=>q.options[i]);shown=value.join('、')}
+ else{value=(document.getElementById('aiaText')?.value||'').trim();shown=value}
+ if(!skip&&q.required&&(!value||(Array.isArray(value)&&!value.length))){toast('這題為必填');return}
+ if(!skip&&!value)shown='（未填寫）';
+ c.log.push({f:'user',t:shown||'（未填寫）'});c.answers.push({id:q.id,title:q.title,type:q.type,value,isvIds:q.isvIds||[]});c.idx++;
+ if(c.idx<c.q.length)chatAsk(c);
+ else{c.done=true;if(c.preview)c.log.push({f:'bot',t:'以上就是全部題目。預覽模式不會儲存回覆。'});else{state.responses.push({date:timestamp(),version:state.surveyVersion,mode:'chat',answers:c.answers});if(save())c.log.push({f:'bot',t:'謝謝你的回饋，已收到你的回覆。'});else c.log.push({f:'bot',t:'儲存失敗，請稍後再試。'})}}
+ chatPaint(k)}
+function surveyView(questions=state.questions,preview=false){return state.surveyMode==='chat'?chatSurvey(questions,preview):surveyForm(questions,preview)}
 function csvDownload(rows,name){const cell=value=>'"'+String(value??'').replace(/^[=+@\-\t\r]/,"'$&").replace(/"/g,'""')+'"';const blob=new Blob(['\uFEFF'+rows.map(row=>row.map(cell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
 let mediaDB;
 function getMediaDB(){return mediaDB||=new Promise((resolve,reject)=>{const r=indexedDB.open('experthub-event-media',1);r.onupgradeneeded=()=>r.result.createObjectStore('files');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
